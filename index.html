@@ -29,7 +29,7 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       background-color: var(--bg-color);
       color: var(--text-main);
-      padding-bottom: 120px;
+      padding-bottom: 140px;
       padding-top: env(safe-area-inset-top);
       min-height: 100vh;
     }
@@ -107,14 +107,18 @@
       list-style: none;
     }
 
-    .track-item, .playlist-item {
+    .track-item, .playlist-card {
+      background-color: var(--card-bg);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+
+    .item-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 12px;
-      background-color: var(--card-bg);
-      border-radius: 8px;
-      margin-bottom: 8px;
     }
 
     .track-info {
@@ -149,6 +153,21 @@
       font-size: 16px;
       padding: 4px 8px;
       cursor: pointer;
+    }
+
+    .action-btn.active {
+      color: var(--accent-color);
+    }
+
+    .playlist-details {
+      display: none;
+      background-color: #161616;
+      border-top: 1px solid var(--border-color);
+      padding: 8px 12px 12px 24px;
+    }
+
+    .playlist-details.active {
+      display: block;
     }
 
     .player-bar {
@@ -202,7 +221,7 @@
     .now-playing {
       flex: 1;
       overflow: hidden;
-      padding-right: 12px;
+      padding-right: 8px;
     }
 
     .np-title {
@@ -216,7 +235,7 @@
     .control-btns {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
     }
 
     .play-btn {
@@ -339,9 +358,11 @@
         <div id="npTitle" class="np-title">楽曲を選択してください</div>
       </div>
       <div class="control-btns">
+        <button id="shuffleBtn" class="action-btn" onclick="toggleShuffle()">🔀</button>
         <button class="action-btn" onclick="prevTrack()">⏮</button>
         <button id="playBtn" class="play-btn" onclick="togglePlay()">▶</button>
         <button class="action-btn" onclick="nextTrack()">⏭</button>
+        <button id="repeatBtn" class="action-btn" onclick="toggleRepeat()">🔁</button>
       </div>
     </div>
   </div>
@@ -360,54 +381,47 @@
   <audio id="audioEngine"></audio>
 
   <script>
-    // --- オフライン起動対応（Service Workerの登録） ---
+    // --- PWA / Off-line ---
     if ('serviceWorker' in navigator) {
       const swCode = `
         const CACHE_NAME = 'app-cache-v1';
-        self.addEventListener('install', (e) => {
-          self.skipWaiting();
-        });
-        self.addEventListener('activate', (e) => {
-          self.clients.claim();
-        });
+        self.addEventListener('install', (e) => self.skipWaiting());
+        self.addEventListener('activate', (e) => self.clients.claim());
         self.addEventListener('fetch', (e) => {
           e.respondWith(
-            fetch(e.request).then(response => {
-              const resClone = response.clone();
-              caches.open(CACHE_NAME).then(cache => cache.put(e.request, resClone));
-              return response;
+            fetch(e.request).then(res => {
+              const clone = res.clone();
+              caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+              return res;
             }).catch(() => caches.match(e.request))
           );
         });
       `;
       const blob = new Blob([swCode], { type: 'text/javascript' });
-      const swUrl = URL.createObjectURL(blob);
-      navigator.serviceWorker.register(swUrl).catch(err => console.log('SW Reg Failed:', err));
+      navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
     }
 
-    // --- プレイヤー基本処理 ---
+    // --- DB Setup ---
     let db;
     const dbReq = indexedDB.open("LocalMusicPlayerDB", 1);
-
     dbReq.onupgradeneeded = (e) => {
       db = e.target.result;
-      if (!db.objectStoreNames.contains("tracks")) {
-        db.createObjectStore("tracks", { keyPath: "id", autoIncrement: true });
-      }
-      if (!db.objectStoreNames.contains("playlists")) {
-        db.createObjectStore("playlists", { keyPath: "id", autoIncrement: true });
-      }
+      if (!db.objectStoreNames.contains("tracks")) db.createObjectStore("tracks", { keyPath: "id", autoIncrement: true });
+      if (!db.objectStoreNames.contains("playlists")) db.createObjectStore("playlists", { keyPath: "id", autoIncrement: true });
     };
-
     dbReq.onsuccess = (e) => {
       db = e.target.result;
       loadTracks();
       loadPlaylists();
     };
 
-    let currentPlaylist = [];
+    // --- Player State ---
+    let allTracks = [];
+    let currentQueue = [];
     let currentTrackIndex = -1;
     let selectedTrackIdForModal = null;
+    let isShuffle = false;
+    let repeatMode = 0; // 0: OFF, 1: 全曲リピート, 2: 1曲リピート
 
     const audio = document.getElementById("audioEngine");
     const playBtn = document.getElementById("playBtn");
@@ -415,6 +429,8 @@
     const currentTimeEl = document.getElementById("currentTime");
     const durationTimeEl = document.getElementById("durationTime");
     const npTitle = document.getElementById("npTitle");
+    const shuffleBtn = document.getElementById("shuffleBtn");
+    const repeatBtn = document.getElementById("repeatBtn");
 
     function switchTab(tab) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -428,71 +444,63 @@
       }
     }
 
+    // --- Add Track ---
     document.getElementById("audioInput").addEventListener("change", (e) => {
       const files = e.target.files;
       if (!files.length) return;
-
       const tx = db.transaction("tracks", "readwrite");
       const store = tx.objectStore("tracks");
-
       for (let file of files) {
-        store.add({
-          name: file.name.replace(/\.[^/.]+$/, ""),
-          type: file.type,
-          data: file
-        });
+        store.add({ name: file.name.replace(/\.[^/.]+$/, ""), type: file.type, data: file });
       }
-
-      tx.oncomplete = () => {
-        loadTracks();
-        e.target.value = "";
-      };
+      tx.oncomplete = () => { loadTracks(); e.target.value = ""; };
     });
 
     function loadTracks() {
       const tx = db.transaction("tracks", "readonly");
-      const store = tx.objectStore("tracks");
-      const req = store.getAll();
-
-      req.onsuccess = () => {
-        const tracks = req.result;
-        currentPlaylist = tracks;
-        renderTrackList(tracks);
+      tx.objectStore("tracks").getAll().onsuccess = (e) => {
+        allTracks = e.target.result;
+        renderTrackList(allTracks);
       };
     }
 
     function renderTrackList(tracks) {
       const listEl = document.getElementById("trackList");
       listEl.innerHTML = "";
-
       if (tracks.length === 0) {
         listEl.innerHTML = '<li style="color:var(--text-sub); text-align:center; padding:20px;">曲を追加してください</li>';
         return;
       }
-
-      tracks.forEach((track, index) => {
+      tracks.forEach((track) => {
         const li = document.createElement("li");
         li.className = "track-item";
         li.innerHTML = `
-          <div class="track-info" onclick="playTrackByIndex(${index})">
-            <div class="track-title">${escapeHtml(track.name)}</div>
-          </div>
-          <div class="track-actions">
-            <button class="action-btn" onclick="openAddToPlaylistModal(${track.id})">➕</button>
-            <button class="action-btn" onclick="deleteTrack(${track.id})">🗑</button>
+          <div class="item-header">
+            <div class="track-info" onclick="playSingleFromAll(${track.id})">
+              <div class="track-title">${escapeHtml(track.name)}</div>
+            </div>
+            <div class="track-actions">
+              <button class="action-btn" onclick="openAddToPlaylistModal(${track.id})">➕</button>
+              <button class="action-btn" onclick="deleteTrack(${track.id})">🗑</button>
+            </div>
           </div>
         `;
         listEl.appendChild(li);
       });
     }
 
-    function playTrackByIndex(index) {
-      if (index < 0 || index >= currentPlaylist.length) return;
-      currentTrackIndex = index;
-      const track = currentPlaylist[index];
+    // --- Play Engine ---
+    function playSingleFromAll(trackId) {
+      currentQueue = isShuffle ? [...allTracks].sort(() => Math.random() - 0.5) : [...allTracks];
+      currentTrackIndex = currentQueue.findIndex(t => t.id === trackId);
+      if (currentTrackIndex !== -1) playTrackByIndex(currentTrackIndex);
+    }
 
-      const blobUrl = URL.createObjectURL(track.data);
-      audio.src = blobUrl;
+    function playTrackByIndex(index) {
+      if (index < 0 || index >= currentQueue.length) return;
+      currentTrackIndex = index;
+      const track = currentQueue[index];
+      audio.src = URL.createObjectURL(track.data);
       audio.play();
       playBtn.textContent = "⏸";
       npTitle.textContent = track.name;
@@ -500,29 +508,57 @@
 
     function togglePlay() {
       if (!audio.src) {
-        if (currentPlaylist.length > 0) playTrackByIndex(0);
+        if (allTracks.length > 0) playSingleFromAll(allTracks[0].id);
         return;
       }
-      if (audio.paused) {
-        audio.play();
-        playBtn.textContent = "⏸";
-      } else {
-        audio.pause();
-        playBtn.textContent = "▶";
-      }
+      if (audio.paused) { audio.play(); playBtn.textContent = "⏸"; }
+      else { audio.pause(); playBtn.textContent = "▶"; }
     }
 
     function prevTrack() {
       if (currentTrackIndex > 0) playTrackByIndex(currentTrackIndex - 1);
+      else if (repeatMode === 1) playTrackByIndex(currentQueue.length - 1);
     }
 
     function nextTrack() {
-      if (currentTrackIndex < currentPlaylist.length - 1) playTrackByIndex(currentTrackIndex + 1);
+      if (repeatMode === 2) {
+        playTrackByIndex(currentTrackIndex);
+      } else if (currentTrackIndex < currentQueue.length - 1) {
+        playTrackByIndex(currentTrackIndex + 1);
+      } else if (repeatMode === 1) {
+        playTrackByIndex(0);
+      }
     }
 
-    audio.addEventListener("ended", () => {
-      nextTrack();
-    });
+    audio.addEventListener("ended", () => nextTrack());
+
+    function toggleShuffle() {
+      isShuffle = !isShuffle;
+      shuffleBtn.classList.toggle("active", isShuffle);
+      if (currentQueue.length > 0) {
+        const currentTrack = currentQueue[currentTrackIndex];
+        if (isShuffle) {
+          currentQueue.sort(() => Math.random() - 0.5);
+        } else {
+          currentQueue = [...allTracks];
+        }
+        currentTrackIndex = currentQueue.findIndex(t => t.id === currentTrack.id);
+      }
+    }
+
+    function toggleRepeat() {
+      repeatMode = (repeatMode + 1) % 3;
+      if (repeatMode === 0) {
+        repeatBtn.textContent = "🔁";
+        repeatBtn.classList.remove("active");
+      } else if (repeatMode === 1) {
+        repeatBtn.textContent = "🔁";
+        repeatBtn.classList.add("active");
+      } else {
+        repeatBtn.textContent = "🔂";
+        repeatBtn.classList.add("active");
+      }
+    }
 
     audio.addEventListener("timeupdate", () => {
       if (!isNaN(audio.duration)) {
@@ -533,9 +569,7 @@
       }
     });
 
-    seekSlider.addEventListener("input", () => {
-      audio.currentTime = seekSlider.value;
-    });
+    seekSlider.addEventListener("input", () => audio.currentTime = seekSlider.value);
 
     function formatTime(sec) {
       const m = Math.floor(sec / 60);
@@ -549,31 +583,24 @@
       tx.oncomplete = () => loadTracks();
     }
 
+    // --- Playlist Engine ---
     function createPlaylist() {
       const input = document.getElementById("playlistNameInput");
       const name = input.value.trim();
       if (!name) return;
-
       const tx = db.transaction("playlists", "readwrite");
       tx.objectStore("playlists").add({ name: name, trackIds: [] });
-      tx.oncomplete = () => {
-        input.value = "";
-        loadPlaylists();
-      };
+      tx.oncomplete = () => { input.value = ""; loadPlaylists(); };
     }
 
     function loadPlaylists() {
       const tx = db.transaction("playlists", "readonly");
-      const req = tx.objectStore("playlists").getAll();
-      req.onsuccess = () => {
-        renderPlaylists(req.result);
-      };
+      tx.objectStore("playlists").getAll().onsuccess = (e) => renderPlaylists(e.target.result);
     }
 
     function renderPlaylists(playlists) {
       const container = document.getElementById("playlistList");
       container.innerHTML = "";
-
       if (playlists.length === 0) {
         container.innerHTML = '<div style="color:var(--text-sub); text-align:center; padding:20px;">プレイリストがありません</div>';
         return;
@@ -581,42 +608,79 @@
 
       playlists.forEach(pl => {
         const div = document.createElement("div");
-        div.className = "playlist-item";
+        div.className = "playlist-card";
+        
+        const plTracks = allTracks.filter(t => pl.trackIds.includes(t.id));
+
+        let innerTracksHtml = plTracks.length === 0 ? 
+          '<div style="color:var(--text-sub); font-size:12px; padding:8px 0;">曲が含まれていません</div>' :
+          plTracks.map(t => `
+            <div class="item-header" style="padding:6px 0;">
+              <div class="track-info" onclick="playTrackFromPlaylist(${pl.id}, ${t.id})">
+                <div class="track-title" style="font-size:13px;">${escapeHtml(t.name)}</div>
+              </div>
+              <button class="action-btn" onclick="removeFromPlaylist(${pl.id}, ${t.id})">❌</button>
+            </div>
+          `).join('');
+
         div.innerHTML = `
-          <div class="track-info">
-            <div class="track-title">${escapeHtml(pl.name)}</div>
-            <div class="track-sub">${pl.trackIds.length} 楽曲</div>
+          <div class="item-header">
+            <div class="track-info" onclick="togglePlaylistDetails(${pl.id})">
+              <div class="track-title">${escapeHtml(pl.name)}</div>
+              <div class="track-sub">${pl.trackIds.length} 楽曲 (タップで展開)</div>
+            </div>
+            <div class="track-actions">
+              <button class="action-btn" onclick="playEntirePlaylist(${pl.id})">▶</button>
+              <button class="action-btn" onclick="deletePlaylist(${pl.id})">🗑</button>
+            </div>
           </div>
-          <div class="track-actions">
-            <button class="action-btn" onclick="playPlaylist(${pl.id})">▶</button>
-            <button class="action-btn" onclick="deletePlaylist(${pl.id})">🗑</button>
+          <div id="pl-details-${pl.id}" class="playlist-details">
+            ${innerTracksHtml}
           </div>
         `;
         container.appendChild(div);
       });
     }
 
-    function playPlaylist(plId) {
-      const tx = db.transaction(["playlists", "tracks"], "readonly");
-      const plReq = tx.objectStore("playlists").get(plId);
+    function togglePlaylistDetails(plId) {
+      const el = document.getElementById(`pl-details-${plId}`);
+      if (el) el.classList.toggle("active");
+    }
 
-      plReq.onsuccess = () => {
-        const playlist = plReq.result;
-        const trackReq = tx.objectStore("tracks").getAll();
-
-        trackReq.onsuccess = () => {
-          const allTracks = trackReq.result;
-          const targetTracks = allTracks.filter(t => playlist.trackIds.includes(t.id));
-
-          if (targetTracks.length > 0) {
-            currentPlaylist = targetTracks;
-            switchTab('tracks');
-            playTrackByIndex(0);
-          } else {
-            alert("このプレイリストには曲がありません");
-          }
-        };
+    function playEntirePlaylist(plId) {
+      const tx = db.transaction("playlists", "readonly");
+      tx.objectStore("playlists").get(plId).onsuccess = (e) => {
+        const pl = e.target.result;
+        const targetTracks = allTracks.filter(t => pl.trackIds.includes(t.id));
+        if (targetTracks.length > 0) {
+          currentQueue = isShuffle ? [...targetTracks].sort(() => Math.random() - 0.5) : [...targetTracks];
+          playTrackByIndex(0);
+        } else {
+          alert("このプレイリストには曲がありません");
+        }
       };
+    }
+
+    function playTrackFromPlaylist(plId, trackId) {
+      const tx = db.transaction("playlists", "readonly");
+      tx.objectStore("playlists").get(plId).onsuccess = (e) => {
+        const pl = e.target.result;
+        const targetTracks = allTracks.filter(t => pl.trackIds.includes(t.id));
+        currentQueue = isShuffle ? [...targetTracks].sort(() => Math.random() - 0.5) : [...targetTracks];
+        currentTrackIndex = currentQueue.findIndex(t => t.id === trackId);
+        if (currentTrackIndex !== -1) playTrackByIndex(currentTrackIndex);
+      };
+    }
+
+    function removeFromPlaylist(plId, trackId) {
+      const tx = db.transaction("playlists", "readwrite");
+      const store = tx.objectStore("playlists");
+      store.get(plId).onsuccess = (e) => {
+        const pl = e.target.result;
+        pl.trackIds = pl.trackIds.filter(id => id !== trackId);
+        store.put(pl);
+      };
+      tx.oncomplete = () => loadPlaylists();
     }
 
     function deletePlaylist(id) {
@@ -625,28 +689,24 @@
       tx.oncomplete = () => loadPlaylists();
     }
 
+    // --- Modal Operations ---
     function openAddToPlaylistModal(trackId) {
       selectedTrackIdForModal = trackId;
       const tx = db.transaction("playlists", "readonly");
-      const req = tx.objectStore("playlists").getAll();
-
-      req.onsuccess = () => {
-        const playlists = req.result;
+      tx.objectStore("playlists").getAll().onsuccess = (e) => {
+        const playlists = e.target.result;
         const select = document.getElementById("playlistSelect");
         select.innerHTML = "";
-
         if (playlists.length === 0) {
-          alert("先に「プレイリスト」タブでプレイリストを作成してください");
+          alert("先に「プレイリスト」タブでリストを作成してください");
           return;
         }
-
         playlists.forEach(pl => {
           const opt = document.createElement("option");
           opt.value = pl.id;
           opt.textContent = pl.name;
           select.appendChild(opt);
         });
-
         document.getElementById("playlistModal").classList.add("active");
       };
     }
@@ -661,16 +721,13 @@
 
       const tx = db.transaction("playlists", "readwrite");
       const store = tx.objectStore("playlists");
-      const req = store.get(plId);
-
-      req.onsuccess = () => {
-        const pl = req.result;
+      store.get(plId).onsuccess = (e) => {
+        const pl = e.target.result;
         if (!pl.trackIds.includes(selectedTrackIdForModal)) {
           pl.trackIds.push(selectedTrackIdForModal);
           store.put(pl);
         }
       };
-
       tx.oncomplete = () => {
         closeModal();
         loadPlaylists();
@@ -678,9 +735,7 @@
     }
 
     function escapeHtml(str) {
-      return str.replace(/[&<>"']/g, function(m) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
-      });
+      return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
     }
   </script>
 </body>
