@@ -360,6 +360,32 @@
   <audio id="audioEngine"></audio>
 
   <script>
+    // --- オフライン起動対応（Service Workerの登録） ---
+    if ('serviceWorker' in navigator) {
+      const swCode = `
+        const CACHE_NAME = 'app-cache-v1';
+        self.addEventListener('install', (e) => {
+          self.skipWaiting();
+        });
+        self.addEventListener('activate', (e) => {
+          self.clients.claim();
+        });
+        self.addEventListener('fetch', (e) => {
+          e.respondWith(
+            fetch(e.request).then(response => {
+              const resClone = response.clone();
+              caches.open(CACHE_NAME).then(cache => cache.put(e.request, resClone));
+              return response;
+            }).catch(() => caches.match(e.request))
+          );
+        });
+      `;
+      const blob = new Blob([swCode], { type: 'text/javascript' });
+      const swUrl = URL.createObjectURL(blob);
+      navigator.serviceWorker.register(swUrl).catch(err => console.log('SW Reg Failed:', err));
+    }
+
+    // --- プレイヤー基本処理 ---
     let db;
     const dbReq = indexedDB.open("LocalMusicPlayerDB", 1);
 
