@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#121212">
+  <title>マイ音楽プレイヤー</title>
+  <style>
+    :root {
+      --bg-color: #121212;
+      --card-bg: #1e1e1e;
+      --accent-color: #1db954;
+      --text-main: #ffffff;
+      --text-sub: #b3b3b3;
+      --border-color: #282828;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      padding-bottom: 120px;
+      padding-top: env(safe-area-inset-top);
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 16px;
+      background-color: var(--card-bg);
+      border-bottom: 1px solid var(--border-color);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .btn-add {
+      background-color: var(--accent-color);
+      color: #000;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: bold;
+      font-size: 14px;
+      cursor: pointer;
+      display: inline-block;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .nav-tabs {
+      display: flex;
+      background-color: var(--card-bg);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      background: none;
+      border: none;
+      color: var(--text-sub);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+
+    .tab-btn.active {
+      color: var(--accent-color);
+      border-bottom-color: var(--accent-color);
+    }
+
+    .container {
+      padding: 16px;
+    }
+
+    .section {
+      display: none;
+    }
+
+    .section.active {
+      display: block;
+    }
+
+    /* Track Item */
+    .track-list, .playlist-list {
+      list-style: none;
+    }
+
+    .track-item, .playlist-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      background-color: var(--card-bg);
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+
+    .track-info {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .track-title {
+      font-size: 15px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .track-sub {
+      font-size: 12px;
+      color: var(--text-sub);
+      margin-top: 4px;
+    }
+
+    .track-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .action-btn {
+      background: none;
+      border: none;
+      color: var(--text-sub);
+      font-size: 18px;
+      padding: 4px 8px;
+      cursor: pointer;
+    }
+
+    .action-btn:hover {
+      color: var(--text-main);
+    }
+
+    /* Player Controls Fixed Footer */
+    .player-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background-color: #181818;
+      border-top: 1px solid var(--border-color);
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom)) 16px;
+      z-index: 100;
+    }
+
+    .progress-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .time-text {
+      font-size: 11px;
+      color: var(--text-sub);
+      width: 35px;
+      text-align: center;
+    }
+
+    .seek-slider {
+      flex: 1;
+      height: 4px;
+      -webkit-appearance: none;
+      background: #535353;
+      border-radius: 2px;
+      outline: none;
+    }
+
+    .seek-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--text-main);
+    }
+
+    .controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .now-playing {
+      flex: 1;
+      overflow: hidden;
+      padding-right: 12px;
+    }
+
+    .np-title {
+      font-size: 14px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .control-btns {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .play-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background-color: var(--text-main);
+      color: #000;
+      border: none;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    /* Playlist Form */
+    .playlist-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .playlist-input {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--border-color);
+      background-color: var(--card-bg);
+      color: var(--text-main);
+      font-size: 14px;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(0,0,0,0.8);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal.active {
+      display: flex;
+    }
+
+    .modal-content {
+      background-color: var(--card-bg);
+      padding: 20px;
+      border-radius: 12px;
+      width: 85%;
+      max-width: 360px;
+    }
+
+    .modal-title {
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+
+    .modal-select {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      background: var(--bg-color);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      margin-bottom: 16px;
+    }
+
+    .modal-btns {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .btn-secondary {
+      background: none;
+      border: none;
+      color: var(--text-sub);
+      padding: 8px 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>マイ音楽プレイヤー</h1>
+    <label class="btn-add" for="audioInput">＋ 曲の追加</label>
+    <input type="file" id="audioInput" accept="audio/*" multiple>
+  </header>
+
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('tracks')">全楽曲</button>
+    <button class="tab-btn" onclick="switchTab('playlists')">プレイリスト</button>
+  </div>
+
+  <div class="container">
+    <!-- 全楽曲セクション -->
+    <div id="section-tracks" class="section active">
+      <ul id="trackList" class="track-list"></ul>
+    </div>
+
+    <!-- プレイリストセクション -->
+    <div id="section-playlists" class="section">
+      <div class="playlist-form">
+        <input type="text" id="playlistNameInput" class="playlist-input" placeholder="新しいプレイリスト名">
+        <button class="btn-add" onclick="createPlaylist()">作成</button>
+      </div>
+      <div id="playlistList" class="playlist-list"></div>
+    </div>
+  </div>
+
+  <!-- 固定プレイヤー -->
+  <div class="player-bar">
+    <div class="progress-container">
+      <span id="currentTime" class="time-text">0:00</span>
+      <input type="range" id="seekSlider" class="seek-slider" min="0" value="0" step="0.1">
+      <span id="durationTime" class="time-text">0:00</span>
+    </div>
+    <div class="controls">
+      <div class="now-playing">
+        <div id="npTitle" class="np-title">楽曲を選択してください</div>
+      </div>
+      <div class="control-btns">
+        <button class="action-btn" onclick="prevTrack()">⏮</button>
+        <button id="playBtn" class="play-btn" onclick="togglePlay()">▶</button>
+        <button class="action-btn" onclick="nextTrack()">⏭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- プレイリスト追加用モーダル -->
+  <div id="playlistModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-title">プレイリストに追加</div>
+      <select id="playlistSelect" class="modal-select"></select>
+      <div class="modal-btns">
+        <button class="btn-secondary" onclick="closeModal()">キャンセル</button>
+        <button class="btn-add" onclick="confirmAddToPlaylist()">追加</button>
+      </div>
+    </div>
+  </div>
+
+  <audio id="audioEngine"></audio>
+
+  <script>
+    // --- IndexedDB Database Setup ---
+    let db;
+    const dbReq = indexedDB.open("LocalMusicPlayerDB", 1);
+
+    dbReq.onupgradeneeded = (e) => {
+      db = e.target.result;
+      if (!db.objectStoreNames.contains("tracks")) {
+        db.createObjectStore("tracks", { keyPath: "id", autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains("playlists")) {
+        db.createObjectStore("playlists", { keyPath: "id", autoIncrement: true });
+      }
+    };
+
+    dbReq.onsuccess = (e) => {
+      db = e.target.result;
+      loadTracks();
+      loadPlaylists();
+    };
+
+    // --- State Variables ---
+    let currentPlaylist = [];
+    let currentTrackIndex = -1;
+    let selectedTrackIdForModal = null;
+
+    const audio = document.getElementById("audioEngine");
+    const playBtn = document.getElementById("playBtn");
+    const seekSlider = document.getElementById("seekSlider");
+    const currentTimeEl = document.getElementById("currentTime");
+    const durationTimeEl = document.getElementById("durationTime");
+    const npTitle = document.getElementById("npTitle");
+
+    // --- Tab Switching ---
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      if (tab === 'tracks') {
+        document.querySelectorAll('.tab-btn')[0].classList.add('active');
+        document.getElementById('section-tracks').classList.add('active');
+      } else {
+        document.querySelectorAll('.tab-btn')[1].classList.add('active');
+        document.getElementById('section-playlists').classList.add('active');
+      }
+    }
+
+    // --- Track File Input & Store ---
+    document.getElementById("audioInput").addEventListener("change", async (e) => {
+      const files = e.target.files;
+      if (!files.length) return;
+
+      const tx = db.transaction("tracks", "readwrite");
+      const store = tx.objectStore("tracks");
+
+      for (let file of files) {
+        store.add({
+          name: file.name.replace(/\.[^/.]+$/, ""),
+          type: file.type,
+          data: file
+        });
+      }
+
+      tx.oncomplete = () => {
+        loadTracks();
+        e.target.value = "";
+      };
+    });
+
+    function loadTracks() {
+      const tx = db.transaction("tracks", "readonly");
+      const store = tx.objectStore("tracks");
+      const req = store.getAll();
+
+      req.onsuccess = () => {
+        const tracks = req.result;
+        currentPlaylist = tracks;
+        renderTrackList(tracks);
+      };
+    }
+
+    function renderTrackList(tracks) {
+      const listEl = document.getElementById("trackList");
+      listEl.innerHTML = "";
+
+      if (tracks.length === 0) {
+        listEl.innerHTML = '<li style="color:var(--text-sub); text-align:center; padding:20px;">曲を追加してください</li>';
+        return;
+      }
+
+      tracks.forEach((track, index) => {
+        const li = document.createElement("li");
+        li.className = "track-item";
+        li.innerHTML = `
+          <div class="track-info" onclick="playTrackByIndex(${index})">
+            <div class="track-title">${escapeHtml(track.name)}</div>
+          </div>
+          <div class="track-actions">
+            <button class="action-btn" onclick="openAddToPlaylistModal(${track.id})">➕</button>
+            <button class="action-btn" onclick="deleteTrack(${track.id})">🗑</button>
+          </div>
+        `;
+        listEl.appendChild(li);
+      });
+    }
+
+    function playTrackByIndex(index) {
+      if (index < 0 || index >= currentPlaylist.length) return;
+      currentTrackIndex = index;
+      const track = currentPlaylist[index];
+
+      const blobUrl = URL.createObjectURL(track.data);
+      audio.src = blobUrl;
+      audio.play();
+      playBtn.textContent = "⏸";
+      npTitle.textContent = track.name;
+    }
+
+    function togglePlay() {
+      if (!audio.src) {
+        if (currentPlaylist.length > 0) playTrackByIndex(0);
+        return;
+      }
+      if (audio.paused) {
+        audio.play();
+        playBtn.textContent = "⏸";
+      } else {
+        audio.pause();
+        playBtn.textContent = "▶";
+      }
+    }
+
+    function prevTrack() {
+      if (currentTrackIndex > 0) playTrackByIndex(currentTrackIndex - 1);
+    }
+
+    function nextTrack() {
+      if (currentTrackIndex < currentPlaylist.length - 1) playTrackByIndex(currentTrackIndex + 1);
+    }
+
+    audio.addEventListener("ended", () => {
+      nextTrack();
+    });
+
+    audio.addEventListener("timeupdate", () => {
+      if (!isNaN(audio.duration)) {
+        seekSlider.max = audio.duration;
+        seekSlider.value = audio.currentTime;
+        currentTimeEl.textContent = formatTime(audio.currentTime);
+        durationTimeEl.textContent = formatTime(audio.duration);
+      }
+    });
+
+    seekSlider.addEventListener("input", () => {
+      audio.currentTime = seekSlider.value;
+    });
+
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+
+    function deleteTrack(id) {
+      const tx = db.transaction("tracks", "readwrite");
+      tx.objectStore("tracks").delete(id);
+      tx.oncomplete = () => loadTracks();
+    }
+
+    // --- Playlist Features ---
+    function createPlaylist() {
+      const input = document.getElementById("playlistNameInput");
+      const name = input.value.trim();
+      if (!name) return;
+
+      const tx = db.transaction("playlists", "readwrite");
+      tx.objectStore("playlists").add({ name: name, trackIds: [] });
+      tx.oncomplete = () => {
+        input.value = "";
+        loadPlaylists();
+      };
+    }
+
+    function loadPlaylists() {
+      const tx = db.transaction("playlists", "readonly");
+      const req = tx.objectStore("playlists").getAll();
+      req.onsuccess = () => {
+        renderPlaylists(req.result);
+      };
+    }
+
+    function renderPlaylists(playlists) {
+      const container = document.getElementById("playlistList");
+      container.innerHTML = "";
+
+      if (playlists.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-sub); text-align:center; padding:20px;">プレイリストがありません</div>';
+        return;
+      }
+
+      playlists.forEach(pl => {
+        const div = document.createElement("div");
+        div.className = "playlist-item";
+        div.innerHTML = `
+          <div class="track-info">
+            <div class="track-title">${escapeHtml(pl.name)}</div>
+            <div class="track-sub">${pl.trackIds.length} 楽曲</div>
+          </div>
+          <div class="track-actions">
+            <button class="action-btn" onclick="playPlaylist(${pl.id})">▶</button>
+            <button class="action-btn" onclick="deletePlaylist(${pl.id})">🗑</button>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function playPlaylist(plId) {
+      const tx = db.transaction(["playlists", "tracks"], "readonly");
+      const plReq = tx.objectStore("playlists").get(plId);
+
+      plReq.onsuccess = () => {
+        const playlist = plReq.result;
+        const trackReq = tx.objectStore("tracks").getAll();
+
+        trackReq.onsuccess = () => {
+          const allTracks = trackReq.result;
+          const targetTracks = allTracks.filter(t => playlist.trackIds.includes(t.id));
+
+          if (targetTracks.length > 0) {
+            currentPlaylist = targetTracks;
+            switchTab('tracks');
+            playTrackByIndex(0);
+          } else {
+            alert("このプレイリストには曲がありません");
+          }
+        };
+      };
+    }
+
+    function deletePlaylist(id) {
+      const tx = db.transaction("playlists", "readwrite");
+      tx.objectStore("playlists").delete(id);
+      tx.oncomplete = () => loadPlaylists();
+    }
+
+    function openAddToPlaylistModal(trackId) {
+      selectedTrackIdForModal = trackId;
+      const tx = db.transaction("playlists", "readonly");
+      const req = tx.objectStore("playlists").getAll();
+
+      req.onsuccess = () => {
+        const playlists = req.result;
+        const select = document.getElementById("playlistSelect");
+        select.innerHTML = "";
+
+        if (playlists.length === 0) {
+          alert("先にプレイリストを作成してください");
+          return;
+        }
+
+        playlists.forEach(pl => {
+          const opt = document.createElement("option");
+          opt.value = pl.id;
+          opt.textContent = pl.name;
+          select.appendChild(opt);
+        });
+
+        document.getElementById("playlistModal").classList.add("active");
+      };
+    }
+
+    function closeModal() {
+      document.getElementById("playlistModal").classList.remove("active");
+    }
+
+    function confirmAddToPlaylist() {
+      const plId = parseInt(document.getElementById("playlistSelect").value);
+      if (!plId || !selectedTrackIdForModal) return;
+
+      const tx = db.transaction("playlists", "readwrite");
+      const store = tx.objectStore("playlists");
+      const req = store.get(plId);
+
+      req.onsuccess = () => {
+        const pl = req.result;
+        if (!pl.trackIds.includes(selectedTrackIdForModal)) {
+          pl.trackIds.push(selectedTrackIdForModal);
+          store.put(pl);
+        }
+      };
+
+      tx.oncomplete = () => {
+        closeModal();
+        loadPlaylists();
+      };
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+      });
+    }
+  </script>
+</body>
+</html>
